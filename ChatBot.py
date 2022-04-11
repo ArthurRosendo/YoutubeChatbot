@@ -1,6 +1,7 @@
 import pickle
 import os
 import string
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.firefox.options import Options
 from selenium import webdriver
 from selenium.webdriver.support import expected_conditions as EC
@@ -10,52 +11,58 @@ import time
 import regex
 import grapheme
 import Person
+from ChatMessage import ChatMessage
 
 
 class ChatBot:
-
     # Tags and Ids for Selenium
-    message_tag = "yt-live-chat-text-message-renderer"
-    chatframe_id = "chatframe"
-    video_player_tag = "div"
-    video_player_id = "movie_player"
+    MESSAGE_TAG = "yt-live-chat-text-message-renderer"
+    CHATFRAME_ID = "chatframe"
+    VIDEO_PLAYER_TAG = "div"
+    VIDEO_PLAYER_ID = "movie_player"
+    CHATBOX_ID = "input"
 
     def __init__(self, _url):
-        self.evaluate_livestream_url(_url)
-
+        self.evaluate_livestream_url(_url) # Check if URL is valid
         self.url = _url
-        self.is_VOD = True  # Mostly for testing purpose
-        self.autoplay_is_on = False  # Change this to True if autoplay is on
+        self.is_VOD = True  # For testing purpose - distinction may be removed later since a bot in a recorded stream doesn't make a lot of sense
+        self.autoplay_is_on = False  # Change this to True if autoplay on YT is on
         self.bot_running = True
-        self.messageHistory = list()
+        self.messageHistory = list[ChatMessage]
 
         self.disallowed_terms = set()
         self.regex_patterns = set()
 
+        # === People blacklist and whitelist ===
         self.whitelist_path = "whitelist.p"
         self.blacklist_path = "blacklist.p"
-
         # Whitelist loading
         if os.path.isfile(self.whitelist_path):
+            #Read whitelist file
             whitelist_file = open(self.whitelist_path, "rb")
             self.whitelisted_people: set[Person] = set(pickle.load(whitelist_file))
             whitelist_file.close()
         else:
+            #Create whitelist file
             self.whitelisted_people: set[Person] = set()
             whitelist_file = open(self.whitelist_path, "x")
+            whitelist_file.close()
             self.save_to_file(self.whitelisted_people, self.whitelist_path)
+
         # Blacklist loading
         if os.path.isfile(self.blacklist_path):
-            blacklist_file = open(self.blacklist_path,"rb")
+            #Read blacklist file
+            blacklist_file = open(self.blacklist_path, "rb")
             self.blacklisted_people: set[Person] = set(pickle.load(blacklist_file))
             blacklist_file.close()
         else:
+            #Create blacklist file
             self.blacklisted_people: set[Person] = set()
-            whitelist_file = open(self.blacklist_path, "x")
+            blacklisted_file = open(self.blacklist_path, "x")
+            blacklisted_file.close()
             self.save_to_file(self.blacklisted_people, self.blacklist_path)
 
         self.driver = None
-
         self.setup()
         # self.run()
 
@@ -67,10 +74,7 @@ class ChatBot:
             raise Exception("Not a URL")
 
     def setup(self):
-        self.selenium_setup()
-
-    def selenium_setup(self):
-        # TODO: Consider locating elements via XPATH
+        # TODO: Replace locating elements with via XPATH
         self.driver = None
         # soup = BeautifulSoup(urlopen(self.url), 'html.parser')
         options = Options()
@@ -80,7 +84,7 @@ class ChatBot:
 
         # === VIDEO PLAYER ===
 
-        video_player_element = self.driver.find_element(By.ID, self.video_player_id)
+        video_player_element = self.driver.find_element(By.ID, self.VIDEO_PLAYER_ID)
         # Keep waiting while the video is not fully loaded
         while True:
             print("Waiting for video player...")
@@ -99,7 +103,7 @@ class ChatBot:
         while True:
             print("Waiting for chat frame...")
             try:
-                chatframe_element = self.driver.find_element(By.ID, self.chatframe_id)
+                chatframe_element = self.driver.find_element(By.ID, self.CHATFRAME_ID)
                 WebDriverWait(self.driver, 1).until(EC.visibility_of(chatframe_element))
                 self.driver.switch_to.frame(chatframe_element)
                 break
@@ -110,7 +114,8 @@ class ChatBot:
         while True:
             print("Waiting for chat message...")
             try:
-                WebDriverWait(self.driver, 1).until(EC.visibility_of(self.driver.find_element(By.TAG_NAME, self.message_tag)))
+                WebDriverWait(self.driver, 1).until(
+                    EC.visibility_of(self.driver.find_element(By.TAG_NAME, self.MESSAGE_TAG)))
                 break
             except:
                 pass
@@ -132,13 +137,18 @@ class ChatBot:
     def run(self):
         # TODO: add a way to stop the bot
         while self.bot_running is True:
-            self.selenium_run()
+            self.run()
 
-    def selenium_run(self):
-        messages_elements = self.driver.find_elements(By.TAG_NAME, self.message_tag)
+    def run(self):
+        messages_elements = self.driver.find_elements(By.TAG_NAME, self.MESSAGE_TAG)
 
         for message_element in messages_elements:
+            msg_id = message_element.getAttribute("id")
             message_content = message_element.find_element(By.ID, "content")
+            #message_timestamp = message_content.find_element(By.ID, "timestamp").getText()
+            #message_text = message_content.find_element(By.ID, "message").getText()
+            #self.messageHistory.append(ChatMessage(msg_id, message_timestamp, message_text, ))
+
             print("-------------------")
             print(message_content.text)
             print("-------------------")
@@ -158,55 +168,72 @@ class ChatBot:
             # TODO: respond to preset commands from moderators and the streamer
             time.sleep(0.1)
 
+    # TODO: test
+    def send_message(self, _message: str):
+        if not self.is_VOD:
+            if not _message:
+                return
 
-    def selenium_send_message(self, _message):
-        raise NotImplementedError
-        # TODO: Select chatbox
-        # TODO: Prepare message
-        # TODO: Select and click submit button
+            chatframe_element = self.driver.find_element(By.ID, self.CHATFRAME_ID)
+            print("send_message: Waiting for chatframe")
+            WebDriverWait(self.driver, 1).until(EC.visibility_of(chatframe_element))
+            self.driver.switch_to.frame(chatframe_element)
 
-    def whitelist(self, _person):
+            chatbox_element = self.driver.find_element(By.ID, self.CHATBOX_ID)
+            print("send_message: Waiting for chatbox")
+            WebDriverWait(self.driver, 1).until(EC.element_to_be_clickable(chatbox_element))
+            chatbox_element.click()
+            #Clear chatbox before sending message
+            chatbox_element.sendKeys(Keys.CONTROL + "a")
+            chatbox_element.sendKeys(Keys.DELETE)
+            #Send
+            chatbox_element.sendKeys(_message)
+
+            chat_submit_button_element = self.driver.find_element(By.ID, "button")
+            print("send_message: Waiting for submit button")
+            WebDriverWait(self.driver, 1).until(EC.element_to_be_clickable(chat_submit_button_element))
+            print(chat_submit_button_element)
+            #chat_submit_button_element.click()  # TODO: Removed for testing sake, please uncomment this
+
+    # WHITELIST
+    def whitelist(self, _person:Person):
         if not self.evaluate_whitelist(_person):
             self.whitelisted_people.add(_person)
             self.save_to_file(self.whitelisted_people, self.whitelist_path)
 
-    def remove_from_whitelist(self, _person):
+    def remove_from_whitelist(self, _person:Person):
         if self.evaluate_whitelist(_person):
             self.whitelisted_people.discard(_person)
             self.save_to_file(self.whitelisted_people, self.whitelist_path)
 
-    def evaluate_whitelist(self, _person):
+    def evaluate_whitelist(self, _person:Person):
         for i in self.whitelisted_people:
             if i.same_person(_person):
                 return True
         return False
 
-    def blacklist(self, _person):
+    # BLACKLIST
+    def blacklist(self, _person: Person):
         if not self.evaluate_blacklist(_person):
             self.blacklisted_people.add(_person)
             self.save_to_file(self.blacklisted_people, self.blacklist_path)
 
-    def remove_from_blacklist(self, _person):
+    def remove_from_blacklist(self, _person: Person):
         if self.evaluate_blacklist(_person):
             self.blacklisted_people.discard(_person)
             self.save_to_file(self.blacklisted_people, self.whitelist_path)
 
-    def evaluate_blacklist(self, _person):
+    def evaluate_blacklist(self, _person: Person):
         for i in self.blacklisted_people:
             if i.same_person(_person):
                 return True
         return False
 
-    def save_to_file(self, _set, _path):
-        file = open(_path,"wb")
-        pickle.dump(_set, file)
-        file.close()
-
     def add_message(self, _message):
         message_already_added = False
         # TODO: replace list with Deque and remove the reversed()?
         for i in reversed(self.messageHistory):
-            if i.sameMessage(_message):
+            if i.same_message(_message):
                 message_already_added = True
                 break
         if not message_already_added:
@@ -221,10 +248,10 @@ class ChatBot:
             self.disallowed_terms.discard(_term)
 
     def evaluate_term(self, _message):
-        flag = regex.I #TODO: If it should be case-sensitive than it is probably better let the user determine it
+        flag = regex.I  # TODO: If it should be case-sensitive than it is probably better let the user determine it
 
         for term in self.disallowed_terms:
-            if regex.search(r"\Q"+term+r"\E", _message, flag):
+            if regex.search(r"\Q" + term + r"\E", _message, flag):
                 return True
         return False
 
@@ -235,7 +262,7 @@ class ChatBot:
                 regex.compile(_pattern)
                 self.regex_patterns.add(_pattern)
             except regex.error:
-                pass #TODO: Maybe should just let it cause regex.error or return False
+                pass  # TODO: Maybe should just let it cause regex.error or return False
 
     def remove_pattern(self, _pattern):
         if _pattern:
@@ -252,14 +279,6 @@ class ChatBot:
         pattern = r'(http(s)?:\/\/.)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-zA-Z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&\/=]*)'
         return regex.search(pattern, _message) is not None
 
-    # If it is a URL with spaces in some places
-    # TODO: FIX ME: this currently is matching any word followed by a period and a another text (eg.: "Hello. How are you") is considered a link
-    @staticmethod
-    def is_sneaky_url(self, _message):
-        raise NotImplementedError
-        pattern = r"(http(s)?:\/\/.)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}[ ]*\.[ ]*[a-zA-Z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&\/=]*)"
-        return regex.search(pattern, _message)
-
     # TODO: Do more intensive tests
     @staticmethod
     def evaluate_diacritic_spam(_message):
@@ -270,3 +289,9 @@ class ChatBot:
             return True
         else:
             return False
+
+    @staticmethod
+    def save_to_file(_set, _path):
+        file = open(_path, "wb")
+        pickle.dump(_set, file)
+        file.close()

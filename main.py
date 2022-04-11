@@ -1,4 +1,5 @@
 from ChatBot import ChatBot
 from Person import Person
 
-chatbot = ChatBot("LINK-HERE")
+link = open("testlink.txt","r")
+chatbot = ChatBot(link.read())

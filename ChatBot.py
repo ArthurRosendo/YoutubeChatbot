@@ -1,3 +1,4 @@
+import datetime
 import pickle
 import os
 import string
@@ -7,6 +8,7 @@ from selenium import webdriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
+from datetime import datetime
 import time
 import regex
 import grapheme
@@ -25,18 +27,20 @@ class ChatBot:
     def __init__(self, _url):
         self.evaluate_livestream_url(_url) # Check if URL is valid
         self.url = _url
-        self.is_VOD = True  # For testing purpose - distinction may be removed later since a bot in a recorded stream doesn't make a lot of sense
+        self.is_VOD = True  # For testing purposes - distinction may be removed later since a bot in a recorded stream doesn't make a lot of sense
         self.autoplay_is_on = False  # Change this to True if autoplay on YT is on
         self.bot_running = True
-        self.messageHistory = list[ChatMessage]
+        self.messageHistory = list[ChatMessage]()
+        self.last_execution = None
+        self.update_last_execution()
 
         self.disallowed_terms = set()
         self.regex_patterns = set()
 
-        # === People blacklist and whitelist ===
+        # region === People blacklist and whitelist ===
         self.whitelist_path = "whitelist.p"
         self.blacklist_path = "blacklist.p"
-        # Whitelist loading
+        #region Whitelist loading
         if os.path.isfile(self.whitelist_path):
             #Read whitelist file
             whitelist_file = open(self.whitelist_path, "rb")
@@ -48,8 +52,9 @@ class ChatBot:
             whitelist_file = open(self.whitelist_path, "x")
             whitelist_file.close()
             self.save_to_file(self.whitelisted_people, self.whitelist_path)
+        #endregion
 
-        # Blacklist loading
+        #region Blacklist loading
         if os.path.isfile(self.blacklist_path):
             #Read blacklist file
             blacklist_file = open(self.blacklist_path, "rb")
@@ -61,20 +66,23 @@ class ChatBot:
             blacklisted_file = open(self.blacklist_path, "x")
             blacklisted_file.close()
             self.save_to_file(self.blacklisted_people, self.blacklist_path)
+        #endregion
+        #endregion
 
         self.driver = None
         self.setup()
-        # self.run()
+        #self.run()
 
-    def evaluate_livestream_url(self, _url):
-        if self.is_url(_url):
+    @staticmethod
+    def evaluate_livestream_url(_url):
+        if ChatBot.is_url(_url):
             if regex.search(r"youtube\.com\/watch\?v=.+$", _url) is None:
-                raise Exception("Invalid URL")
+                raise Exception("Invalid URL - provided url is not a livestream/video")
         else:
-            raise Exception("Not a URL")
+            raise Exception("Not an URL")
 
     def setup(self):
-        # TODO: Replace locating elements with via XPATH
+        # TODO ?: Replace locating elements with via XPATH?
         self.driver = None
         # soup = BeautifulSoup(urlopen(self.url), 'html.parser')
         options = Options()
@@ -121,7 +129,7 @@ class ChatBot:
                 pass
         print("Found message(s)")
 
-        # Changing to live chat replay
+        # Changing to live chat replay (this is for both streams AND vods)
         button = self.driver.find_element(By.ID, "view-selector")
         button.click()
         while True:
@@ -134,39 +142,43 @@ class ChatBot:
             except:
                 pass
 
-    def run(self):
-        # TODO: add a way to stop the bot
-        while self.bot_running is True:
-            self.run()
+    def add_message_to_history(self, _msg:ChatMessage):
+        for msg in self.messageHistory:
+            if msg.same_message(_msg):
+                return
+        self.messageHistory.append(_msg)
+
+    def update_last_execution(self):
+        self.last_execution = datetime.now().strftime("%H:%M:%S")
 
     def run(self):
-        messages_elements = self.driver.find_elements(By.TAG_NAME, self.MESSAGE_TAG)
+        while self.bot_running:
+            messages_elements = self.driver.find_elements(By.TAG_NAME, self.MESSAGE_TAG)
 
-        for message_element in messages_elements:
-            msg_id = message_element.getAttribute("id")
-            message_content = message_element.find_element(By.ID, "content")
-            #message_timestamp = message_content.find_element(By.ID, "timestamp").getText()
-            #message_text = message_content.find_element(By.ID, "message").getText()
-            #self.messageHistory.append(ChatMessage(msg_id, message_timestamp, message_text, ))
+            for message_element in messages_elements:
+                msg_id = message_element.getAttribute("id")
+                message_content = message_element.find_element(By.ID, "content")
+                message_timestamp = message_content.find_element(By.ID, "timestamp").getText()
+                message_text = message_content.find_element(By.ID, "message").getText()
+                #TODO: get who sent the message? How to obtain channel id?
+                self.add_message_to_history( ChatMessage(msg_id, message_timestamp, message_text) )
 
-            print("-------------------")
-            print(message_content.text)
-            print("-------------------")
+                # TODO: store messages on a file or db
+                # TODO: retrieve the actual text message from the message element
+                # TODO: evaluate if message or messenger:
+                # Is posted too much by the same user (spam)
+                # Is posted too much by multiple users (dynamic copypasta detection)
+                # Uses spammy characters? (Symbol protection)
+                # Disguised link (eg.: "example .xyz")
+                # Synonym match
+                # Shared channel-blacklist
 
-            # TODO: store messages on a file or db
+                #TODO: check if the user is the streamer (or moderator) that sent the message or remove this functionality entirely
+                if message_content.text == "!quit":
+                    break
 
-            # TODO: retrieve the actual text message from the message element
-
-            # TODO: evaluate if message or messenger:
-            # Is posted too much by the same user (spam)
-            # Is posted too much by multiple users (dynamic copypasta detection)
-            # Uses spammy characters? (Symbol protection)
-            # Disguised link (eg.: "example .xyz")
-            # Synonym match
-            # Shared channel-blacklist
-
-            # TODO: respond to preset commands from moderators and the streamer
-            time.sleep(0.1)
+                self.update_last_execution()
+                time.sleep(0.2)
 
     # TODO: test
     def send_message(self, _message: str):
